@@ -1,2 +1,8 @@
-# Project dependencies
-# Add packages as needed
+ultralytics
+opencv-python
+pandas
+matplotlib
+mlflow
+dvc
+torch
+torchvision

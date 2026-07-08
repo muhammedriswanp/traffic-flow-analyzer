@@ -21,8 +21,9 @@ class VehicleCounter:
         self._last_y: dict[int, float] = {}          # track_id → last center_y
         self._crossed: set[int] = set()              # track_ids that already crossed
         self._counts: dict[str, dict[str, int]] = defaultdict(lambda: {"in": 0, "out": 0})
+        self.crossing: list[dict] = []               # event log for CSV export
 
-    def update(self, results) -> None:
+    def update(self, results, frame_idx: int = 0) -> None:
         """
         Feed a model.track() result for one frame.
         results: single Results object from model.track(frame, persist=True)[0]
@@ -42,12 +43,24 @@ class VehicleCounter:
 
             if last_y is not None and track_id not in self._crossed:
                 line = self.cfg.line_y
+                direction = None
+
                 if last_y < line <= cy:
-                    self._counts[class_name]["in"] += 1
-                    self._crossed.add(track_id)
+                    direction = "in"
                 elif last_y >= line > cy:
-                    self._counts[class_name]["out"] += 1
+                    direction = "out"
+
+                if direction:
+                    self._counts[class_name][direction] += 1
                     self._crossed.add(track_id)
+                    self.crossings.append({
+                        "frame":      frame_idx,
+                        "track_id":   track_id,
+                        "class_name": class_name,
+                        "direction":  direction,
+                        "center_y":   round(cy, 2),
+                    })
+
             self._last_y[track_id] = cy
     @property
     def total_in(self) -> int:
@@ -58,11 +71,19 @@ class VehicleCounter:
         return sum(v["out"] for v in self._counts.values())
     
     @property
+    def total(self) -> int:
+        return self.total_in + self.total_out
+    
+    @property
     def count(self) -> dict:
         return {cls: dict(dirs) for cls, dirs in self._counts.items()}
     
     def summary(self) -> dict:
-        result = {"total_in": self.total_in, "total_out": self.total_out}
+        result = {
+            "total":    self.total,
+            "total_in": self.total_in,
+            "total_out": self.total_out,
+            }
         for cls, dirs in self._counts.items():
             result[f"{cls}_in"] = dirs["in"]
             result[f"{cls}_out"] = dirs["out"]

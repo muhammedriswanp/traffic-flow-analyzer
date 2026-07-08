@@ -2,7 +2,5 @@ ultralytics
 opencv-python
 pandas
 matplotlib
-mlflow
-dvc
 torch
 torchvision

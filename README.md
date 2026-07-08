@@ -28,7 +28,7 @@ traffic-flow-analyzer/
 
 ### Sample Output
 
-![Detection Example](data/processed/Screenshot%202026-07-07%20172538.png)
+![Detection Example](Screenshot%202026-07-07%20172538.png)
 
 ### CLI Usage
 

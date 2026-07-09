@@ -1,4 +1,4 @@
-"""Vehicle detection logic using YOLOv8."""
+"""Vehicle detection and tracking logic using YOLOv8."""
 
 import cv2
 import numpy as np
@@ -21,41 +21,98 @@ CLASS_COLORS = {
     "truck":      (255, 0, 255),  # magenta
 }
 
+# YOLOv8 inference size — 1280 works well for 4K source video.
+# Bboxes are automatically rescaled back to the original frame dimensions.
+INFERENCE_SIZE = 1280
+
 
 def load_model(weights: str = "models/yolov8n.pt") -> YOLO:
-    """Load a YOLOv8 model. Downloads pretrained weights on first run."""
-    model = YOLO(weights)
-    return model
+    return YOLO(weights)
 
 
-def detect_vehicles(
-    model: YOLO,
-    frame: np.ndarray,
-    conf_threshold: float = 0.3,
-) -> list[dict]:
+def open_video(path: str | Path) -> tuple:
+    path = Path(path)
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise FileNotFoundError(f"Cannot open video: {path}")
+    meta = {
+        "width":        int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+        "height":       int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)),
+        "fps":          cap.get(cv2.CAP_PROP_FPS) or 25.0,
+        "total_frames": int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
+    }
+    return cap, meta
+
+
+def make_writer(path: str | Path, width: int, height: int, fps: float) -> cv2.VideoWriter:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    return cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+
+
+def track_vehicles(model: YOLO, frame: np.ndarray, conf: float = 0.35) -> object:
     """
-    Run YOLOv8 inference on a single frame and return vehicle detections.
+    Run YOLOv8 + ByteTrack on a single frame.
 
-    Args:
-        model: Loaded YOLO model.
-        frame: BGR image array (H x W x 3).
-        conf_threshold: Minimum confidence to keep a detection.
-
-    Returns:
-        List of dicts with keys: class_id, class_name, confidence, bbox (x1,y1,x2,y2).
+    imgsz=INFERENCE_SIZE downscales 4K frames before inference so the model
+    sees vehicles at a scale closer to its training distribution (640px).
+    Bboxes are automatically rescaled back to original frame dimensions.
     """
-    results = model(frame, verbose=False)[0]        #Show detailed information while the program is running.
+    results = model.track(
+        frame,
+        persist=True,
+        classes=list(VEHICLE_CLASSES.keys()),
+        imgsz=INFERENCE_SIZE,
+        conf=conf,
+        verbose=False,
+    )[0]
+    return results
+
+
+def draw_tracks(frame: np.ndarray, results) -> None:
+    """Draw bounding boxes, labels, and track IDs on frame (in-place)."""
+    if results.boxes is None or len(results.boxes) == 0:
+        return
+
+    has_ids = results.boxes.id is not None
+
+    for i, box in enumerate(results.boxes.xyxy):
+        x1, y1, x2, y2 = map(int, box)
+        cls_id     = int(results.boxes.cls[i])
+        conf       = float(results.boxes.conf[i])
+        class_name = results.names[cls_id]
+        color      = CLASS_COLORS.get(class_name, (200, 200, 200))
+
+        if has_ids:
+            track_id = int(results.boxes.id[i])
+            label = f"#{track_id} {class_name} {conf:.2f}"
+        else:
+            label = f"{class_name} {conf:.2f}"
+
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        cv2.rectangle(frame, (x1, y1 - th - baseline - 4), (x1 + tw, y1), color, -1)
+        cv2.putText(
+            frame, label,
+            (x1, y1 - baseline - 2),
+            cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+            (0, 0, 0), 1, cv2.LINE_AA,
+        )
+
+
+# ── legacy detection-only pipeline ───────────────────────────────────────────
+
+def detect_vehicles(model, frame, conf_threshold=0.35):
+    results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
     detections = []
-
     for box in results.boxes:
         class_id = int(box.cls[0])
         if class_id not in VEHICLE_CLASSES:
             continue
-
         conf = float(box.conf[0])
         if conf < conf_threshold:
             continue
-
         x1, y1, x2, y2 = map(int, box.xyxy[0])
         detections.append({
             "class_id":   class_id,
@@ -63,118 +120,54 @@ def detect_vehicles(
             "confidence": conf,
             "bbox":       (x1, y1, x2, y2),
         })
-
     return detections
 
 
-def draw_detections(frame: np.ndarray, detections: list[dict]) -> np.ndarray:
-    """
-    Draw bounding boxes and labels on a copy of the frame.
-
-    Args:
-        frame: Original BGR frame.
-        detections: List returned by detect_vehicles().
-
-    Returns:
-        Annotated BGR frame.
-    """
+def draw_detections(frame, detections):
     annotated = frame.copy()
-
     for det in detections:
         x1, y1, x2, y2 = det["bbox"]
         label = f"{det['class_name']} {det['confidence']:.2f}"
         color = CLASS_COLORS.get(det["class_name"], (200, 200, 200))
-
-        # Bounding box
         cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
-
-        # Label background
         (tw, th), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
         cv2.rectangle(annotated, (x1, y1 - th - baseline - 4), (x1 + tw, y1), color, -1)
-
-        # Label text
-        cv2.putText(
-            annotated, label,
-            (x1, y1 - baseline - 2),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-            (0, 0, 0), 1, cv2.LINE_AA,
-        )
-
+        cv2.putText(annotated, label, (x1, y1 - baseline - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
     return annotated
 
 
-def process_video(
-    input_path: str | Path,
-    output_path: str | Path,
-    weights: str = "yolov8n.pt",
-    conf_threshold: float = 0.3,
-) -> dict:
-    """
-    Run vehicle detection on every frame of a video and save annotated output.
-
-    Args:
-        input_path:  Path to the source video.
-        output_path: Path to write the annotated video (MP4).
-        weights:     YOLOv8 model weights file.
-        conf_threshold: Minimum detection confidence.
-
-    Returns:
-        Summary dict: total_frames, total_detections, detections_per_class.
-    """
-    input_path = Path(input_path)
+def process_video(input_path, output_path, weights="yolov8n.pt", conf_threshold=0.35):
+    input_path  = Path(input_path)
     output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
     model = load_model(weights)
-
-    cap = cv2.VideoCapture(str(input_path))
-    if not cap.isOpened():
-        raise FileNotFoundError(f"Cannot open video: {input_path}")
-
-    width  = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    fps    = cap.get(cv2.CAP_PROP_FPS) or 25.0
-
-    fourcc = cv2.VideoWriter_fourcc(*"mp4v")        # #4-letter code that identifies the video codec.
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
-
+    cap, meta = open_video(input_path)
+    writer = make_writer(output_path, meta["width"], meta["height"], meta["fps"])
     stats = {"total_frames": 0, "total_detections": 0, "detections_per_class": {}}
-
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
-
             detections = detect_vehicles(model, frame, conf_threshold)
             annotated  = draw_detections(frame, detections)
             writer.write(annotated)
-
             stats["total_frames"] += 1
             stats["total_detections"] += len(detections)
             for det in detections:
                 name = det["class_name"]
-                stats["detections_per_class"][name] = (
-                    stats["detections_per_class"].get(name, 0) + 1
-                )
-
+                stats["detections_per_class"][name] = stats["detections_per_class"].get(name, 0) + 1
     finally:
         cap.release()
         writer.release()
-
-    print(f"[detect] Processed {stats['total_frames']} frames → {output_path}")
-    print(f"[detect] Total detections: {stats['total_detections']}")
-    print(f"[detect] By class: {stats['detections_per_class']}")
-
+    print(f"[detect] {stats['total_frames']} frames → {output_path}")
+    print(f"[detect] detections: {stats['total_detections']}  by class: {stats['detections_per_class']}")
     return stats
+
 
 if __name__ == "__main__":
     import sys
-
     if len(sys.argv) < 2:
         print("Usage: python detect.py <input_video> [output_video]")
         sys.exit(1)
-
-    src = sys.argv[1]
-    dst = sys.argv[2] if len(sys.argv) > 2 else "data/processed/output_annotated.mp4"
-    process_video(src, dst)
+    process_video(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else "data/processed/output_annotated.mp4")

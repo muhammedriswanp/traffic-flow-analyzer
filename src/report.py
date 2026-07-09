@@ -1,100 +1,111 @@
-import csv, json
-from datetime import datetime
+"""CSV event log and text summary report generator."""
+
+import json
 from pathlib import Path
 
-CROSSINGS_HEADER = ["frame", "track_id", "class_name", "direction", "center_y"]
+import pandas as pd
 
-def save_crossings_csv(crossings: list[dict], output_path: str | Path) -> Path:
+
+def build_summary(counter, video_name: str, fps: float, total_frames: int) -> dict:
     """
-    Write every crossing event to a CSV file.
- 
-    Args:
-        crossings:   List of dicts from VehicleCounter.crossings.
-        output_path: Where to save the CSV.
- 
-    Returns:
-        Path to the written file.
-    """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    Build a flat summary dict from a finished VehicleCounter.
 
-    with open(output_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=CROSSINGS_HEADER)
-        writer.writeheader()
-        writer.writerows(crossings)
-
-    print(f"[report] Crossings CSV → {output_path}  ({len(crossings)} rows)")
-    return output_path
-
-def build_summary(counter, *, video_name: str = "", fps: float = 25.0, total_frames: int = 0) -> dict:
-    """
-    Build a summary dict from the counter's final state.
- 
     Args:
         counter:      VehicleCounter instance after processing.
-        video_name:   Name of the source video file.
-        fps:          Frames per second of the video.
-        total_frames: Total number of frames processed.
- 
-    Returns:
-        Dict with totals, per-class counts, and video metadata.
-    """
+        video_name:   Source video filename (for the report header).
+        fps:          Video frame rate.
+        total_frames: Number of frames processed.
 
-    duration_s = total_frames / fps if fps else 0
+    Returns:
+        Dict with total counts, per-class breakdown, and flow rate.
+    """
+    duration_s = total_frames / fps if fps > 0 else 0
 
     summary = {
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "video":        video_name,
-        "total_frames": total_frames,
-        "duration_s":   round(duration_s, 2),
-        "fps":          fps,
-        **counter.summer(),
+        "video":             video_name,
+        "total_frames":      total_frames,
+        "duration_s":        round(duration_s, 2),
+        "fps":               round(fps, 2),
+        "total_in":          counter.total_in,
+        "total_out":         counter.total_out,
+        "total":             counter.total_in + counter.total_out,
     }
 
-    if duration_s > 0 :
-        summary["flow_rate_per_min"] = round(summary["total"] / (duration_s / 60), 2)
-    
+    # Per-class breakdown
+    for cls, dirs in counter.count.items():
+        summary[f"{cls}_in"]  = dirs["in"]
+        summary[f"{cls}_out"] = dirs["out"]
+
+    # Flow rate (vehicles per minute, inbound)
+    if duration_s > 0:
+        summary["flow_rate_per_min"] = round(counter.total_in / duration_s * 60, 1)
+
     return summary
 
-def save_summary_txt(summary: dict, output_path: str | Path) -> Path:
-    """Write a human-readable plain-text traffic report."""
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    VEHICLE_CLASSES = ["car", "truck", "bus", "motorcycle"]
-    
+def save_crossings_csv(crossings: list[dict], path: str | Path) -> None:
+    """
+    Save the per-vehicle crossing event log as a CSV file.
+
+    Columns: frame, track_id, class, direction
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if crossings:
+        df = pd.DataFrame(crossings)
+    else:
+        df = pd.DataFrame(columns=["frame", "track_id", "class", "direction"])
+
+    df.to_csv(path, index=False)
+    print(f"[report] Crossings CSV → {path}  ({len(df)} events)")
+
+
+def save_summary_txt(summary: dict, path: str | Path) -> None:
+    """
+    Save a human-readable plain-text summary report.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
     lines = [
-        "=" * 52,
-        "  TRAFFIC FLOW ANALYSIS REPORT",
-        "=" * 52,
-        f"  Generated : {summary['generated_at']}",
-        f"  Video     : {summary.get('video', 'N/A')}",
-        f"  Duration  : {summary['duration_s']} s"
-        f"  ({summary['total_frames']} frames @ {summary['fps']} fps)",
-        "-" * 52,
-        f"  Total crossings : {summary['total']}",
-        f"    ↓ IN           : {summary['total_in']}",
-        f"    ↑ OUT          : {summary['total_out']}",
+        "=" * 44,
+        "  TRAFFIC FLOW ANALYZER — SUMMARY REPORT",
+        "=" * 44,
+        f"  Video          : {summary.get('video', 'N/A')}",
+        f"  Duration       : {summary.get('duration_s', 0):.1f} s  ({summary.get('fps', 0)} fps)",
+        f"  Frames         : {summary.get('total_frames', 0)}",
+        "-" * 44,
+        f"  Total vehicles : {summary.get('total', 0)}",
+        f"  Inbound  (IN)  : {summary.get('total_in', 0)}",
+        f"  Outbound (OUT) : {summary.get('total_out', 0)}",
     ]
 
     if "flow_rate_per_min" in summary:
-        lines.append(f"  Flow rate       : {summary['flow_rate_per_min']} veh/min")
-    
-    lines += ["-" * 52, "  By class:", ""]
+        lines.append(f"  Flow rate      : {summary['flow_rate_per_min']} veh/min (inbound)")
 
-    for cls in VEHICLE_CLASSES:
+    lines.append("-" * 44)
+    lines.append("  Per-class breakdown:")
+
+    vehicle_classes = ["car", "motorcycle", "bus", "truck"]
+    for cls in vehicle_classes:
         in_count  = summary.get(f"{cls}_in",  0)
         out_count = summary.get(f"{cls}_out", 0)
-        if in_count or out_count:
-            total_cls = in_count + out_count
-            lines.append(
-                f"  {cls:<12}  total={total_cls:>4}   in={in_count:>4}   out={out_count:>4}"
-            )
+        if in_count + out_count > 0:
+            lines.append(f"    {cls:<12} IN: {in_count:<4} OUT: {out_count}")
 
-    lines += ["", "=" * 52]
+    lines.append("=" * 44)
 
-    with open(output_path, "w") as f:
+    with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"[report] Text report → {output_path}")
-    return output_path
+    print(f"[report] Summary TXT  → {path}")
+
+
+def save_summary_json(summary: dict, path: str | Path) -> None:
+    """Save summary as JSON (useful for downstream tooling)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"[report] Summary JSON → {path}")

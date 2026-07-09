@@ -21,12 +21,7 @@ CLASS_COLORS = {
     "truck":      (255, 0, 255),  # magenta
 }
 
-# YOLOv8 inference size — 1280 works well for 4K source video.
-# Bboxes are automatically rescaled back to the original frame dimensions.
-INFERENCE_SIZE = 1280
-
-
-def load_model(weights: str = "models/yolov8n.pt") -> YOLO:
+def load_model(weights: str = "models/yolov8m.pt") -> YOLO:
     return YOLO(weights)
 
 
@@ -63,7 +58,6 @@ def track_vehicles(model: YOLO, frame: np.ndarray, conf: float = 0.35) -> object
         frame,
         persist=True,
         classes=list(VEHICLE_CLASSES.keys()),
-        imgsz=INFERENCE_SIZE,
         conf=conf,
         verbose=False,
     )[0]
@@ -104,7 +98,7 @@ def draw_tracks(frame: np.ndarray, results) -> None:
 # ── legacy detection-only pipeline ───────────────────────────────────────────
 
 def detect_vehicles(model, frame, conf_threshold=0.35):
-    results = model(frame, imgsz=INFERENCE_SIZE, verbose=False)[0]
+    results = model(frame, verbose=False)[0]
     detections = []
     for box in results.boxes:
         class_id = int(box.cls[0])

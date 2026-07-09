@@ -1,47 +1,109 @@
-# traffic-flow-analyzer
+# Traffic Flow Analyzer
 
-An AI-powered traffic video analytics system that detects, tracks, and counts vehicles from surveillance videos using YOLOv8 and OpenCV, generating traffic reports and visualizations for traffic engineering analysis.
+A vehicle detection and counting system built on YOLOv8 (deep learning) and OpenCV,
+tracking vehicles across frames and reporting flow rates from traffic footage.
+
+---
+
+## What it does
+
+- Detects vehicles (car, truck, bus, motorcycle) using YOLOv8n
+- Tracks each vehicle across frames using ByteTrack (built into Ultralytics)
+- Counts vehicles crossing a horizontal line, split by direction (IN / OUT)
+- Exports a CSV event log, plain-text summary, and a 2×2 dashboard PNG
+
+---
 
 ## Project Structure
 
 ```
 traffic-flow-analyzer/
-├── main.py                 # Entry point (WIP)
-├── requirements.txt        # Python dependencies
-├── models/                 # YOLO weights directory
-├── data/                   # Input/output video data
-├── src/
-│   ├── detect.py           # Vehicle detection using YOLOv8
-│   ├── counter.py          # Line-crossing vehicle counter
-│   ├── visualize.py        # Plots and dashboard visualizations
-│   └── report.py           # CSV and statistics report generator
-└── README.md
+├── main.py               # Entry point
+├── requirements.txt
+├── models/               # YOLOv8 weights (auto-downloaded on first run)
+├── data/
+│   ├── raw/              # Input videos (not tracked in git)
+│   └── processed/        # Output video, CSV, report, dashboard
+└── src/
+    ├── detect.py         # YOLOv8 detection + tracking
+    ├── counter.py        # Line-crossing counter
+    ├── report.py         # CSV and text report generation
+    └── visualize.py      # Dashboard PNG
 ```
 
-## Detection Module (`src/detect.py`)
-
-- Uses [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) for object detection.
-- Detects **4 vehicle classes**: car, motorcycle, bus, truck (COCO dataset IDs 2, 3, 5, 7).
-- Each class is drawn with a distinct BGR color (green, orange, red, magenta).
-- Default confidence threshold: **0.3**.
-- `process_video(input_path, output_path, weights, conf_threshold)` — processes every frame of a video, draws bounding boxes with class labels and confidence, and writes an annotated MP4 output. Returns a summary dict with `total_frames`, `total_detections`, and `detections_per_class`.
-
-### Sample Output
-
-![Detection Example](Screenshot%202026-07-07%20172538.png)
-
-### CLI Usage
-
-```bash
-python src/detect.py data/input_video.mp4 data/processed/output.mp4
-```
-
-If no output path is specified, the result is saved to `data/processed/output_annotated.mp4`.
+---
 
 ## Setup
 
 ```bash
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Mac/Linux
+
 pip install -r requirements.txt
 ```
 
-The YOLO weights (`yolov8n.pt`) are downloaded automatically on first run.
+YOLOv8 weights (`yolov8n.pt`) are downloaded automatically on first run.
+
+---
+
+## Usage
+
+```bash
+python main.py data/raw/your_video.mp4
+```
+
+Skip the dashboard:
+
+```bash
+python main.py data/raw/your_video.mp4 --no-dashboard
+```
+
+### Outputs (written to `data/processed/`)
+
+| File | Description |
+|---|---|
+| `output_annotated.mp4` | Video with bounding boxes, track IDs, and count line |
+| `crossings.csv` | Per-vehicle crossing events (frame, track_id, class, direction) |
+| `report.txt` | Plain-text summary |
+| `dashboard.png` | 2×2 chart dashboard |
+
+---
+
+## Sample Results
+
+Tested on a highway video (4509 frames, ~2.5 min):
+
+```
+Total vehicles : 139
+IN             : 115
+OUT            : 24
+Flow rate      : 45.9 veh/min
+```
+
+---
+
+## Stack
+
+| Tool | Purpose |
+|---|---|
+| [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics) | Detection + ByteTrack tracking |
+| OpenCV | Video I/O and frame annotation |
+| pandas | Crossing event log |
+| matplotlib | Dashboard charts |
+
+---
+
+## Known Limitations
+
+- YOLOv8n (nano) is used for speed — occasional misclassification between similar classes (e.g. car vs truck) is expected. Swappable with `yolov8s.pt` for better accuracy.
+- Counting line is placed at the vertical midpoint of the frame by default. Videos where vehicles don't cross the midline will show zero counts.
+- Optimised for standard traffic camera angles. Very high resolution (4K+) or fisheye footage may reduce detection quality.
+
+---
+
+## Future Scope
+
+### Adaptive Signal Timing
+
+Most traffic signals run on a fixed timer — green for 60 seconds, red for 60 seconds, regardless of actual traffic volume. This system lays the groundwork for a smarter approach: measuring the actual vehicle count per direction and allocating green time proportionally to the busier lanes, reducing unnecessary wait times and improving junction throughput.

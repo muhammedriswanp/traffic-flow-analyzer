@@ -22,8 +22,9 @@ traffic-flow-analyzer/
 ├── requirements.txt
 ├── models/               # YOLOv8 weights (auto-downloaded on first run)
 ├── data/
-│   ├── raw/              # Input videos (not tracked in git)
-│   └── processed/        # Output video, CSV, report, dashboard
+│   ├── raw/             # Input videos (not tracked in git)
+│   ├──processed/        # Output video
+│   └──reports           # CSV, report, dashboard
 └── src/
     ├── detect.py         # YOLOv8 detection + tracking
     ├── counter.py        # Line-crossing counter
@@ -51,12 +52,6 @@ YOLOv8 weights (`yolov8n.pt`) are downloaded automatically on first run.
 
 ```bash
 python main.py data/raw/your_video.mp4
-```
-
-Skip the dashboard:
-
-```bash
-python main.py data/raw/your_video.mp4 --no-dashboard
 ```
 
 ### Outputs (written to `data/processed/`)
@@ -96,7 +91,7 @@ Flow rate      : 45.9 veh/min
 
 ## Known Limitations
 
-- YOLOv8n (nano) is used for speed — occasional misclassification between similar classes (e.g. car vs truck) is expected. Swappable with `yolov8s.pt` for better accuracy.
+- YOLOv8s (small) is used for speed — occasional misclassification between similar classes (e.g. car vs truck) is expected. Swappable with `yolov8m.pt` for better accuracy.
 - Counting line is placed at the vertical midpoint of the frame by default. Videos where vehicles don't cross the midline will show zero counts.
 - Optimised for standard traffic camera angles. Very high resolution (4K+) or fisheye footage may reduce detection quality.
 

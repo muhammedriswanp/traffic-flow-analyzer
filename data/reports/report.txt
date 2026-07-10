@@ -1,0 +1,17 @@
+============================================
+  TRAFFIC FLOW ANALYZER — SUMMARY REPORT
+============================================
+  Video          : Highway.mp4
+  Duration       : 120.2 s  (25.0 fps)
+  Frames         : 3004
+--------------------------------------------
+  Total vehicles : 303
+  Inbound  (IN)  : 168
+  Outbound (OUT) : 135
+  Flow rate      : 83.9 veh/min (inbound)
+--------------------------------------------
+  Per-class breakdown:
+    car          IN: 155  OUT: 118
+    bus          IN: 1    OUT: 2
+    truck        IN: 12   OUT: 15
+============================================

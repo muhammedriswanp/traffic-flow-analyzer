@@ -11,8 +11,8 @@ from src.visualize import save_dashboard
 
 def run(input_path: Path, no_dashboard: bool = False) -> None:
     # ── output paths ─────────────────────────────────────────────────────
-    out_dir   = Path("data/processed")
-    video_out = out_dir / "output_annotated.mp4"
+    out_dir   = Path("data/reports")
+    video_out = Path("data/processed/output_annotated.mp4")
     csv_out   = out_dir / "crossings.csv"
     txt_out   = out_dir / "report.txt"
     dash_out  = out_dir / "dashboard.png"
